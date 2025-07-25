@@ -16,7 +16,9 @@ namespace HMS
         public DbSet<MedicalHistory> MedicalHistories { get; set; }
         public DbSet<Slot> Slots { get; set; }
         public DbSet<Staff> Staffs { get; set; }
-        
+        public DbSet<User> Users { get; set; }
+        public DbSet<RefreshToken> RefreshTokens { get; set; }
+
         public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
         {
 
@@ -64,7 +66,10 @@ namespace HMS
                 .HasForeignKey(a => a.SlotId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-           
+            modelBuilder.Entity<RefreshToken>()
+             .HasOne(rt => rt.User)
+             .WithMany()
+             .HasForeignKey(rt => rt.UserId);
 
 
 

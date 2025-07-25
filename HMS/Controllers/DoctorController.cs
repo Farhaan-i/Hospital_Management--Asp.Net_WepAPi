@@ -84,9 +84,20 @@ namespace HMS.Controllers
         [HttpDelete("doctors/{id}")]
         public async Task<ActionResult> DeleteDoctor(int id)
         {
-            await _context.Database.ExecuteSqlRawAsync("EXEC DeleteDoctor @DoctorId", new SqlParameter("@DoctorId", id));
-            return NoContent();
+            try
+            {
+                await _context.Database.ExecuteSqlRawAsync("EXEC DeleteDoctor @DoctorId", new SqlParameter("@DoctorId", id));
+
+                // Return a 200 OK with a confirmation message
+                return Ok($"Doctor with ID {id} has been deleted successfully.");
+            }
+            catch (Exception ex)
+            {
+                // Optional: handle errors gracefully
+                return StatusCode(500, $"Error deleting doctor: {ex.Message}");
+            }
         }
+
 
         // 6. Cancel Appointments by Date
         [HttpPut("cancel/{doctorId}/{date}")]

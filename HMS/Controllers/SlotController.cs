@@ -17,105 +17,23 @@ namespace HMS.Controllers
         }
 
         [HttpPost("GenerateSlots")]
-        public IActionResult GenerateSlots([FromBody] slotDto dto)
+        public async Task<IActionResult> GenerateSlots([FromBody] slotDto dto)
         {
             try
             {
                 if (dto == null || string.IsNullOrEmpty(dto.StartDate) || string.IsNullOrEmpty(dto.EndDate) || dto.DoctorId == 0)
-                {
                     return BadRequest("Invalid slot data.");
-                }
-
-                // Validate Doctor existence
-                var doctorExists = _context.Doctors.Any(d => d.DoctorId == dto.DoctorId);
-                if (!doctorExists)
-                {
-                    return BadRequest($"Doctor with ID {dto.DoctorId} does not exist.");
-                }
 
                 DateTime startDate = DateTime.Parse(dto.StartDate);
                 DateTime endDate = DateTime.Parse(dto.EndDate);
-                TimeSpan slotDuration = TimeSpan.FromMinutes(Convert.ToDouble(dto.SlotDuration));
-                TimeSpan dailyStartTime = TimeSpan.Parse(dto.DailyStartTime);
-                TimeSpan dailyEndTime = TimeSpan.Parse(dto.DailyEndTime);
+                int slotDuration = Convert.ToInt32(dto.SlotDuration);
+                TimeSpan startTime = TimeSpan.Parse(dto.DailyStartTime);
+                TimeSpan endTime = TimeSpan.Parse(dto.DailyEndTime);
 
-                if (dailyStartTime >= dailyEndTime)
-                {
-                    return BadRequest("Daily start time must be before end time.");
-                }
+                await _context.Database.ExecuteSqlInterpolatedAsync(
+                    $"EXEC usp_GenerateSlots @StartDate = {startDate}, @EndDate = {endDate}, @SlotDuration = {slotDuration}, @DailyStartTime = {startTime}, @DailyEndTime = {endTime}, @DoctorId = {dto.DoctorId}");
 
-                List<Slot> slots = new();
-
-                for (var date = startDate.Date; date <= endDate.Date; date = date.AddDays(1))
-                {
-                    for (var time = dailyStartTime; time < dailyEndTime; time = time.Add(slotDuration))
-                    {
-                        var slot = new Slot
-                        {
-                            SlotDate = date,
-                            StartTime = time,
-                            EndTime = time.Add(slotDuration),
-                            DoctorId = dto.DoctorId,
-                            IsBooked = false
-                        };
-
-                        slots.Add(slot);
-                        _context.Slots.Add(slot);
-                    }
-                }
-
-                _context.SaveChanges();
-                return Ok(new { message = "Slots generated successfully!", slots });
-            }
-            catch (FormatException ex)
-            {
-                return BadRequest(new { message = "Invalid date or time format.", details = ex.Message });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = "Internal server error.", details = ex.Message });
-            }
-        }
-
-        [HttpDelete("delete-before-today/{doctorId}")]
-        public IActionResult DeleteSlotsBeforeToday(int doctorId)
-        {
-            try
-            {
-                var today = DateTime.Today;
-                var slotsToDelete = _context.Slots
-                    .Where(s => s.DoctorId == doctorId && s.SlotDate < today)
-                    .ToList();
-
-                if (slotsToDelete.Any())
-                {
-                    _context.Slots.RemoveRange(slotsToDelete);
-                    _context.SaveChanges();
-                }
-
-                return Ok("Old slots deleted successfully.");
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { error = "Error deleting slots.", details = ex.Message });
-            }
-        }
-
-        [HttpGet("UnbookedSlots/{doctorId}")]
-        public ActionResult<List<Slot>> GetUnbookedSlotsByDoctor(int doctorId)
-        {
-            try
-            {
-                var slots = _context.Slots
-                    .Where(s => s.DoctorId == doctorId && !s.IsBooked)
-                    .ToList();
-
-                if (!slots.Any())
-                {
-                    return NotFound("No unbooked slots found.");
-                }
-
-                return Ok(slots);
+                return Ok("Slots generated successfully.");
             }
             catch (Exception ex)
             {
@@ -123,53 +41,62 @@ namespace HMS.Controllers
             }
         }
 
-        [HttpGet("{id}")]
-        public IActionResult GetSlotById(int id)
-        {
-            try
-            {
-                var slot = _context.Slots.FirstOrDefault(s => s.SlotId == id);
-                if (slot == null)
-                {
-                    return NotFound($"No slot found with ID {id}.");
-                }
 
-                return Ok(slot);
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { error = "Error retrieving slot.", details = ex.Message });
-            }
+        [HttpDelete("delete-before-today/{doctorId}")]
+        public async Task<IActionResult> DeleteSlotsBeforeToday(int doctorId)
+        {
+            await _context.Database.ExecuteSqlInterpolatedAsync(
+                $"EXEC usp_DeleteSlotsBeforeToday @DoctorId = {doctorId}");
+
+            return Ok("Old slots deleted successfully.");
         }
+
+
+        [HttpGet("UnbookedSlots/{doctorId}")]
+        public async Task<IActionResult> GetUnbookedSlotsByDoctor(int doctorId)
+        {
+            var slots = await _context.Slots
+                .FromSqlInterpolated($"EXEC usp_GetUnbookedSlotsByDoctor @DoctorId = {doctorId}")
+                .ToListAsync();
+
+            return slots.Any() ? Ok(slots) : NotFound("No unbooked slots found.");
+        }
+
+
+        [HttpGet("{id}")]
+        public async Task<IActionResult> GetSlotById(int id)
+        {
+            var slot = _context.Slots
+            .FromSqlInterpolated($"EXEC usp_GetSlotById @SlotId = {id}")
+            .AsEnumerable()
+            .FirstOrDefault(); // ✅ Works fine
+
+            return slot == null ? NotFound($"No slot found with ID {id}.") : Ok(slot);
+
+        }
+
 
         [HttpPut("update")]
-        public IActionResult UpdateSlot([FromBody] Slot slot)
+        public async Task<IActionResult> UpdateSlot([FromBody] Slot slot)
         {
-            try
-            {
-                _context.Slots.Update(slot);
-                _context.SaveChanges();
-                return Ok("Slot updated successfully.");
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { error = "Error updating slot.", details = ex.Message });
-            }
+            await _context.Database.ExecuteSqlInterpolatedAsync(
+                $"EXEC usp_UpdateSlot @SlotId = {slot.SlotId}, @SlotDate = {slot.SlotDate}, @StartTime = {slot.StartTime}, @EndTime = {slot.EndTime}, @IsBooked = {slot.IsBooked}, @DoctorId = {slot.DoctorId}");
+
+            return Ok("Slot updated successfully.");
         }
+
 
         [HttpGet("available")]
-        public ActionResult<List<Slot>> GetUnbookedSlotsByDoctorAndDate([FromQuery] int doctorId, [FromQuery] DateTime date)
+        public async Task<IActionResult> GetUnbookedSlotsByDoctorAndDate([FromQuery] int doctorId, [FromQuery] DateTime date)
         {
-            var slots = _context.Slots
-                .Where(s => s.DoctorId == doctorId && s.SlotDate.Date == date.Date && !s.IsBooked)
-                .ToList();
+            var slots = await _context.Slots
+                .FromSqlInterpolated($"EXEC usp_GetUnbookedSlotsByDoctorAndDate @DoctorId = {doctorId}, @SlotDate = {date}")
+                .ToListAsync();
 
-            if (!slots.Any())
-            {
-                return NotFound($"No available slots found for Doctor ID {doctorId} on {date:yyyy-MM-dd}.");
-            }
-
-            return Ok(slots);
+            return slots.Any()
+                ? Ok(slots)
+                : NotFound($"No available slots found for Doctor ID {doctorId} on {date:yyyy-MM-dd}.");
         }
+
     }
 }

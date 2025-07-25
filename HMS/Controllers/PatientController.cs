@@ -17,112 +17,84 @@ namespace HMS.Controllers
         }
 
         [HttpGet("patients")]
-        public ActionResult<List<Patient>> GetAllPatients()
+        public async Task<IActionResult> GetAllPatients()
         {
-            var patients = _context.Patients.ToList();
+            var patients = await _context.Patients
+                .FromSqlInterpolated($"EXEC usp_GetAllPatients")
+                .ToListAsync();
+
             return Ok(patients);
         }
 
         [HttpGet("patients/{id}")]
-        public ActionResult<Patient> GetPatientById(int id)
+        public async Task<IActionResult> GetPatientById(int id)
         {
-            var patient = _context.Patients.Find(id);
-            if (patient == null)
-            {
-                return NotFound($"No patient found with ID {id}");
-            }
-            return Ok(patient);
+            var patientList = await _context.Patients
+                .FromSqlInterpolated($"EXEC usp_GetPatientById @PatientId = {id}")
+                .ToListAsync();
+
+            var patient = patientList.FirstOrDefault();
+
+            return patient == null
+                ? NotFound($"No patient found with ID {id}")
+                : Ok(patient);
         }
 
         [HttpPost("patients")]
-        public IActionResult AddPatient([FromBody] PatientDto dto)
+        public async Task<IActionResult> AddPatient([FromBody] PatientDto dto)
         {
-            if (dto == null)
-            {
-                return BadRequest("Invalid patient data.");
-            }
+            var inserted = await _context.Patients
+                .FromSqlInterpolated($@"
+                    EXEC usp_AddPatient 
+                        @Name = {dto.PatientName}, 
+                        @Email = {dto.PatientEmail}, 
+                        @Phone = {dto.PatientPhoneNumber}, 
+                        @Dob = {dto.PatientDateOfBirth}, 
+                        @Gender = {dto.Gender}")
+                .ToListAsync();
 
-            var patient = new Patient
-            {
-                PatientName = dto.PatientName,
-                PatientEmail = dto.PatientEmail,
-                PatientPhoneNumber = dto.PatientPhoneNumber,
-                PatientDateOfBirth = dto.PatientDateOfBirth,
-                Gender = dto.Gender
-            };
+            var patientId = inserted.FirstOrDefault()?.PatientId ?? 0;
 
-            _context.Patients.Add(patient);
-            _context.SaveChanges();
-
-            return Ok(new { message = "Patient added successfully", patientId = patient.PatientId });
+            return Ok(new { message = "Patient added successfully", patientId });
         }
 
         [HttpPut("patients/{id}")]
-        public IActionResult UpdatePatient(int id, [FromBody] PatientDto dto)
+        public async Task<IActionResult> UpdatePatient(int id, [FromBody] PatientDto dto)
         {
             if (dto == null || dto.PatientId != id)
-            {
                 return BadRequest("Invalid patient data or mismatched ID.");
-            }
 
-            var patient = _context.Patients.FirstOrDefault(p => p.PatientId == id);
-            if (patient == null)
-            {
-                return NotFound("Patient not found.");
-            }
+            await _context.Database.ExecuteSqlInterpolatedAsync($@"
+                EXEC usp_UpdatePatient 
+                    @PatientId = {dto.PatientId}, 
+                    @Name = {dto.PatientName}, 
+                    @Email = {dto.PatientEmail}, 
+                    @Phone = {dto.PatientPhoneNumber}, 
+                    @Dob = {dto.PatientDateOfBirth}, 
+                    @Gender = {dto.Gender}");
 
-            patient.PatientName = dto.PatientName;
-            patient.PatientEmail = dto.PatientEmail;
-            patient.PatientPhoneNumber = dto.PatientPhoneNumber;
-            patient.PatientDateOfBirth = dto.PatientDateOfBirth;
-
-            _context.SaveChanges();
             return Ok("Patient updated successfully.");
         }
 
         [HttpDelete("patients/{id}")]
-        public IActionResult DeletePatient(int id)
+        public async Task<IActionResult> DeletePatient(int id)
         {
-            var patient = _context.Patients.Find(id);
-            if (patient == null)
-            {
-                return NotFound($"No patient found with ID {id}");
-            }
+            await _context.Database.ExecuteSqlInterpolatedAsync(
+                $"EXEC usp_DeletePatient @PatientId = {id}");
 
-            _context.Patients.Remove(patient);
-            _context.SaveChanges();
             return NoContent();
         }
 
         [HttpGet("medical-history/{phoneNumber}")]
-        public IActionResult GetMedicalHistoryByPhoneNumber(string phoneNumber)
+        public async Task<IActionResult> GetMedicalHistoryByPhoneNumber(string phoneNumber)
         {
-            try
-            {
-                var patient = _context.Patients.FirstOrDefault(p => p.PatientPhoneNumber == phoneNumber);
-                if (patient == null)
-                {
-                    return NotFound("Patient not found.");
-                }
+            var history = await _context.MedicalHistories
+                .FromSqlInterpolated($"EXEC usp_GetMedicalHistoryByPhoneNumber @PhoneNumber = {phoneNumber}")
+                .ToListAsync();
 
-                var history = _context.MedicalHistories
-                    .Where(mh => mh.PatientId == patient.PatientId)
-                    .Select(mh => new MedicalHistoryDto
-                    {
-                        HistoryId = mh.HistoryId,
-                        PatientId = mh.PatientId,
-                        Diagnosis = mh.Diagnosis,
-                        Treatment = mh.Treatment,
-                        DateRecorded = mh.DateRecorded
-                    })
-                    .ToList();
-
-                return Ok(history);
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { error = $"Error retrieving medical history: {ex.Message}" });
-            }
+            return history.Any()
+                ? Ok(history)
+                : NotFound("Patient or medical history not found.");
         }
     }
 }

@@ -28,24 +28,36 @@ namespace HMS.Controllers
         [HttpPost("register")]
         public async Task<IActionResult> Register([FromBody] RegisterDto dto)
         {
+            // Check for existing username and email
             if (await _context.Users.AnyAsync(u => u.Username == dto.Username))
                 return BadRequest("Username already exists");
 
             if (await _context.Users.AnyAsync(u => u.Email == dto.Email))
                 return BadRequest("Email already exists");
 
-            // Validate role-specific IDs
+            // Validate role-specific ID and email match
             if (dto.Role == "Doctor" && dto.DoctorId.HasValue)
             {
-                if (!await _context.Doctors.AnyAsync(d => d.DoctorId == dto.DoctorId))
-                    return BadRequest("Invalid Doctor ID");
+                var doctor = await _context.Doctors
+                    .FirstOrDefaultAsync(d => d.DoctorId == dto.DoctorId && d.DoctorEmail == dto.Email);
+
+                if (doctor == null)
+                    return BadRequest("Doctor ID and Email do not match");
             }
             else if (dto.Role == "Staff" && dto.StaffId.HasValue)
             {
-                if (!await _context.Staffs.AnyAsync(s => s.StaffId == dto.StaffId))
-                    return BadRequest("Invalid Staff ID");
+                var staff = await _context.Staffs
+                    .FirstOrDefaultAsync(s => s.StaffId == dto.StaffId && s.StaffEmail == dto.Email);
+
+                if (staff == null)
+                    return BadRequest("Staff ID and Email do not match");
+            }
+            else
+            {
+                return BadRequest("Invalid role or missing ID");
             }
 
+            // Create new user
             var user = new User
             {
                 Username = dto.Username,
@@ -62,7 +74,8 @@ namespace HMS.Controllers
             return Ok(new { message = "User registered successfully" });
         }
 
-        
+
+
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginDto dto)
         {

@@ -16,109 +16,75 @@ namespace HMS.Controllers
         }
 
         [HttpPost("register-staff")]
-        public IActionResult RegisterStaff([FromBody] Staff staff)
+        public async Task<IActionResult> RegisterStaff([FromBody] Staff staff)
         {
-            try
-            {
-                if (staff == null || string.IsNullOrEmpty(staff.StaffEmail))
-                {
-                    return BadRequest("Invalid staff data.");
-                }
+            if (staff == null || string.IsNullOrEmpty(staff.StaffEmail))
+                return BadRequest("Invalid staff data.");
 
-                _context.Staffs.Add(staff);
-                _context.SaveChanges();
+            var inserted = await _context.Staffs
+                .FromSqlInterpolated($@"
+                    EXEC usp_RegisterStaff 
+                        @Name = {staff.StaffName}, 
+                        @Role = {staff.StaffRole}, 
+                        @Email = {staff.StaffEmail}, 
+                        @Phone = {staff.StaffPhoneNumber}")
+                .ToListAsync();
 
-                // Optional: Add user registration logic here if needed
+            var savedStaff = inserted.FirstOrDefault();
 
-                return Ok(new { message = "Staff registered successfully!" });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, $"Error registering staff: {ex.Message}");
-            }
+            return savedStaff == null
+                ? StatusCode(500, "Staff registration failed.")
+                : Ok(new { message = "Staff registered successfully!", Staff = savedStaff });
         }
 
         [HttpGet("all")]
-        public IActionResult GetAllStaff()
+        public async Task<IActionResult> GetAllStaff()
         {
-            try
-            {
-                var staffList = _context.Staffs.ToList();
-                return Ok(staffList);
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { Error = ex.Message });
-            }
+            var staffList = await _context.Staffs
+                .FromSqlInterpolated($"EXEC usp_GetAllStaff")
+                .ToListAsync();
+
+            return Ok(staffList);
         }
 
         [HttpGet("{id}")]
-        public IActionResult GetStaffById(int id)
+        public async Task<IActionResult> GetStaffById(int id)
         {
-            try
-            {
-                var staff = _context.Staffs.FirstOrDefault(s => s.StaffId == id);
-                if (staff == null)
-                {
-                    return NotFound(new { Message = $"No staff found with ID {id}" });
-                }
-                return Ok(staff);
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { Error = ex.Message });
-            }
+            var staffList = await _context.Staffs
+                .FromSqlInterpolated($"EXEC usp_GetStaffById @StaffId = {id}")
+                .ToListAsync();
+
+            var staff = staffList.FirstOrDefault();
+
+            return staff == null
+                ? NotFound(new { Message = $"No staff found with ID {id}" })
+                : Ok(staff);
         }
 
         [HttpPut("update/{id}")]
-        public IActionResult UpdateStaff(int id, [FromBody] Staff staff)
+        public async Task<IActionResult> UpdateStaff(int id, [FromBody] Staff staff)
         {
-            try
-            {
-                if (id != staff.StaffId)
-                {
-                    return BadRequest(new { Message = "Staff ID mismatch" });
-                }
+            if (id != staff.StaffId)
+                return BadRequest(new { Message = "Staff ID mismatch" });
 
-                var existingStaff = _context.Staffs.FirstOrDefault(s => s.StaffId == id);
-                if (existingStaff == null)
-                {
-                    return NotFound(new { Message = $"No staff found with ID {id}" });
-                }
+            await _context.Database.ExecuteSqlInterpolatedAsync($@"
+                EXEC usp_UpdateStaff 
+                    @StaffId = {staff.StaffId}, 
+                    @Name = {staff.StaffName}, 
+                    @Role = {staff.StaffRole}, 
+                    @Email = {staff.StaffEmail}, 
+                    @Phone = {staff.StaffPhoneNumber}");
 
-                existingStaff.StaffName = staff.StaffName;
-                existingStaff.StaffRole = staff.StaffRole;
-                existingStaff.StaffEmail = staff.StaffEmail;
-                existingStaff.StaffPhoneNumber = staff.StaffPhoneNumber;
-
-                _context.SaveChanges();
-                return Ok(new { Message = "Staff updated successfully.", Staff = existingStaff });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { Error = ex.Message });
-            }
+            return Ok(new { Message = "Staff updated successfully.", Staff = staff });
         }
 
         [HttpDelete("delete/{id}")]
-        public IActionResult DeleteStaff(int id)
+        public async Task<IActionResult> DeleteStaff(int id)
         {
-            try
-            {
-                var staff = _context.Staffs.FirstOrDefault(s => s.StaffId == id);
-                if (staff == null)
-                {
-                    return NotFound(new { Message = $"No staff found with ID {id}" });
-                }
+            await _context.Database.ExecuteSqlInterpolatedAsync(
+                $"EXEC usp_DeleteStaff @StaffId = {id}");
 
-                _context.Staffs.Remove(staff);
-                _context.SaveChanges();
-                return Ok(new { Message = "Staff deleted successfully." });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { Error = ex.Message });
-            }
+            return Ok(new { Message = "Staff deleted successfully." });
         }
     }
 }

@@ -21,6 +21,8 @@ namespace HMS
 
         public DbSet<UserLoginLog> UserLoginLogs { get; set; }
 
+        public DbSet<FrontendErrorLog> FrontendErrorLogs { get; set; }
+
         public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
         {
 
